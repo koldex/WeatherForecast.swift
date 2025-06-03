@@ -1,0 +1,6 @@
+{
+  "openWeatherMapApiKey": "YOUR_API_KEY_HERE",
+  "city": "Lappeenranta",
+  "country": "Finland",
+  "updateIntervalSeconds": 60
+}

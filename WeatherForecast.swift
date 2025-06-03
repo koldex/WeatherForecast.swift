@@ -2,10 +2,40 @@
 
 import Foundation
 
-// Constants
-let CITY = "Lappeenranta"
-let COUNTRY = "Finland"
-let API_KEY = "a571e40b56a00bdd00715a6219f2f2dd" // OpenWeatherMap API key
+// Configuration structure
+struct Config: Codable {
+    let openWeatherMapApiKey: String
+    let city: String
+    let country: String
+    let updateIntervalSeconds: Int?
+}
+
+// Load configuration
+func loadConfig() -> Config? {
+    let configPath = "config.json"
+    let url = URL(fileURLWithPath: configPath)
+    
+    do {
+        let data = try Data(contentsOf: url)
+        let config = try JSONDecoder().decode(Config.self, from: data)
+        return config
+    } catch {
+        print("Virhe: config.json tiedostoa ei löydy tai se on virheellinen.")
+        print("Luo config.json tiedosto config.example.json pohjalta.")
+        print("Lisää oma OpenWeatherMap API-avaimesi tiedostoon.")
+        return nil
+    }
+}
+
+// Load configuration
+guard let config = loadConfig() else {
+    exit(1)
+}
+
+// Constants from config
+let CITY = config.city
+let COUNTRY = config.country
+let API_KEY = config.openWeatherMapApiKey
 
 // API URL for current weather
 func getCurrentWeatherURL() -> URL? {
