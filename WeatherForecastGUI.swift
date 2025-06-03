@@ -37,6 +37,47 @@ class WeatherData: ObservableObject {
     @Published var tomorrowForecast: TomorrowForecast?
     @Published var isLoading = true
     @Published var errorMessage: String?
+    @Published var lastUpdateTime: Date?
+    @Published var isFrozen = false
+    
+    private var updateTimer: Timer?
+    
+    func startAutoUpdate() {
+        guard !isFrozen else { return }
+        stopAutoUpdate()
+        
+        // Update immediately
+        loadWeatherData(self)
+        
+        // Then update every 60 seconds
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
+            if !self.isFrozen {
+                loadWeatherData(self)
+            }
+        }
+    }
+    
+    func stopAutoUpdate() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+    
+    func toggleFreeze() {
+        isFrozen.toggle()
+        if isFrozen {
+            stopAutoUpdate()
+        } else {
+            startAutoUpdate()
+        }
+    }
+    
+    func manualRefresh() {
+        loadWeatherData(self)
+    }
+    
+    deinit {
+        stopAutoUpdate()
+    }
 }
 
 // API URL for current weather
@@ -276,6 +317,7 @@ func loadWeatherData(_ weatherData: WeatherData) {
             weatherData.currentWeather = current
             weatherData.hourlyForecast = hourly
             weatherData.tomorrowForecast = tomorrow
+            weatherData.lastUpdateTime = Date()
             weatherData.isLoading = false
         }
     }
@@ -285,12 +327,35 @@ func loadWeatherData(_ weatherData: WeatherData) {
 struct ContentView: View {
     @StateObject private var weatherData = WeatherData()
     
+    var timeFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d.M.yyyy HH:mm:ss"
+        formatter.locale = Locale(identifier: "fi_FI")
+        return formatter
+    }
+    
     var body: some View {
         VStack(spacing: 20) {
             // Title
-            Text("Sää: \(CITY), \(COUNTRY)")
-                .font(.title)
-                .fontWeight(.bold)
+            HStack {
+                Text("Sää: \(CITY), \(COUNTRY)")
+                    .font(.title)
+                    .fontWeight(.bold)
+                
+                Spacer()
+                
+                if weatherData.isFrozen, let updateTime = weatherData.lastUpdateTime {
+                    VStack(alignment: .trailing) {
+                        Text("PYSÄYTETTY")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.red)
+                        Text("Päivitetty: \(timeFormatter.string(from: updateTime))")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
             
             if weatherData.isLoading {
                 ProgressView("Ladataan säätietoja...")
@@ -467,16 +532,47 @@ struct ContentView: View {
                 }
             }
             
-            // Close button
-            Button("Sulje") {
-                NSApplication.shared.terminate(nil)
+            // Control buttons
+            HStack(spacing: 20) {
+                Button(action: {
+                    weatherData.manualRefresh()
+                }) {
+                    Label("Päivitä nyt", systemImage: "arrow.clockwise")
+                }
+                .disabled(weatherData.isLoading)
+                
+                Button(action: {
+                    weatherData.toggleFreeze()
+                }) {
+                    Label(weatherData.isFrozen ? "Jatka päivityksiä" : "Pysäytä päivitykset", 
+                          systemImage: weatherData.isFrozen ? "play.fill" : "pause.fill")
+                }
+                
+                Spacer()
+                
+                Button("Sulje") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .foregroundColor(.red)
             }
+            .padding(.horizontal)
             .padding(.bottom, 10)
+            
+            // Status bar
+            if !weatherData.isFrozen, let updateTime = weatherData.lastUpdateTime {
+                Text("Päivitetty: \(timeFormatter.string(from: updateTime)) • Päivittyy automaattisesti")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .padding(.bottom, 5)
+            }
         }
         .padding()
-        .frame(width: 500, height: 600)
+        .frame(width: 550, height: 650)
         .onAppear {
-            loadWeatherData(weatherData)
+            weatherData.startAutoUpdate()
+        }
+        .onDisappear {
+            weatherData.stopAutoUpdate()
         }
     }
 }
@@ -488,7 +584,7 @@ struct WeatherApp: App {
         if let window = NSApplication.shared.windows.first {
             window.titlebarAppearsTransparent = false
             window.title = "Säätiedot"
-            window.setContentSize(NSSize(width: 500, height: 600))
+            window.setContentSize(NSSize(width: 550, height: 650))
             window.center()
         }
     }
