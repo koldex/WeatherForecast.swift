@@ -166,9 +166,9 @@ func formatTomorrowForecast(_ forecastData: [String: Any]) -> String {
         
         if calendar.isDateInTomorrow(itemDate) {
             let timeOfDay = getTimeOfDay(from: dt)
-            if timeOfDay == "Morning" && morningForecast == nil {
+            if timeOfDay == "Aamu" && morningForecast == nil {
                 morningForecast = item
-            } else if timeOfDay == "Afternoon" && afternoonForecast == nil {
+            } else if timeOfDay == "Iltapäivä" && afternoonForecast == nil {
                 afternoonForecast = item
             }
             
