@@ -21,6 +21,31 @@ func getForecastURL() -> URL? {
     return URL(string: urlString)
 }
 
+// Translate weather descriptions from English to Finnish
+func translateWeatherDescription(_ description: String) -> String {
+    let translations: [String: String] = [
+        "clear sky": "Kirkas taivas",
+        "few clouds": "Muutamia pilviä",
+        "scattered clouds": "Hajanaisia pilviä",
+        "broken clouds": "Melko pilvistä",
+        "overcast clouds": "Täysin pilvessä",
+        "shower rain": "Sadekuuroja",
+        "rain": "Sadetta",
+        "light rain": "Kevyttä sadetta",
+        "moderate rain": "Kohtalaista sadetta",
+        "heavy intensity rain": "Kovaa sadetta",
+        "thunderstorm": "Ukkosmyrsky",
+        "snow": "Lumisadetta",
+        "light snow": "Kevyttä lumisadetta",
+        "mist": "Sumua",
+        "fog": "Sumua",
+        "haze": "Usvaa"
+    ]
+    
+    let lowercaseDesc = description.lowercased()
+    return translations[lowercaseDesc] ?? description.capitalized
+}
+
 // Convert timestamp to formatted string
 func formatTime(from timestamp: TimeInterval) -> String {
     let date = Date(timeIntervalSince1970: timestamp)
@@ -35,6 +60,7 @@ func getDayName(from timestamp: TimeInterval) -> String {
     let date = Date(timeIntervalSince1970: timestamp)
     let dateFormatter = DateFormatter()
     dateFormatter.dateFormat = "EEEE"
+    dateFormatter.locale = Locale(identifier: "fi_FI")
     return dateFormatter.string(from: date)
 }
 
@@ -45,11 +71,11 @@ func getTimeOfDay(from timestamp: TimeInterval) -> String {
     let hour = calendar.component(.hour, from: date)
     
     if hour >= 6 && hour < 12 {
-        return "Morning"
+        return "Aamu"
     } else if hour >= 12 && hour < 18 {
-        return "Afternoon"
+        return "Iltapäivä"
     } else {
-        return "Other"
+        return "Muu"
     }
 }
 
@@ -64,16 +90,18 @@ func formatCurrentWeather(_ weather: [String: Any]) -> String {
           let description = firstWeather["description"] as? String,
           let wind = weather["wind"] as? [String: Any],
           let windSpeed = wind["speed"] as? Double else {
-        return "Error parsing current weather data"
+        return "Virhe jäsennettäessä säätietoja"
     }
     
+    let finnishDescription = translateWeatherDescription(description)
+    
     return """
-    Current Weather in \(CITY), \(COUNTRY)
+    Nykyinen sää: \(CITY), \(COUNTRY)
     ┌─────────────────────────────────────────────┐
-    │ Temperature: \(String(format: "%.1f", temp))°C (feels like \(String(format: "%.1f", feelsLike))°C)
-    │ Conditions:  \(description.capitalized)
-    │ Humidity:    \(humidity)%
-    │ Wind Speed:  \(String(format: "%.1f", windSpeed)) m/s
+    │ Lämpötila:   \(String(format: "%.1f", temp))°C (tuntuu \(String(format: "%.1f", feelsLike))°C)
+    │ Säätila:     \(finnishDescription)
+    │ Kosteus:     \(humidity)%
+    │ Tuulen nopeus: \(String(format: "%.1f", windSpeed)) m/s
     └─────────────────────────────────────────────┘
     """
 }
@@ -81,16 +109,16 @@ func formatCurrentWeather(_ weather: [String: Any]) -> String {
 // Format hourly forecast
 func formatHourlyForecast(_ forecastData: [String: Any]) -> String {
     guard let list = forecastData["list"] as? [[String: Any]] else {
-        return "Error parsing forecast data"
+        return "Virhe jäsennettäessä ennustetietoja"
     }
     
     let now = Date()
     let threeHoursLater = now.addingTimeInterval(3 * 3600)
     
     var hourlyForecasts: [String] = []
-    hourlyForecasts.append("\nNext 3 Hours Forecast:")
+    hourlyForecasts.append("\nSeuraavien 3 tunnin ennuste:")
     hourlyForecasts.append("┌──────────┬──────────┬─────────────────────┬──────────┬──────────┐")
-    hourlyForecasts.append("│   Time   │  Temp°C  │    Conditions       │ Humidity │   Wind   │")
+    hourlyForecasts.append("│   Aika   │ Lämpöt.  │      Säätila        │ Kosteus  │  Tuuli   │")
     hourlyForecasts.append("├──────────┼──────────┼─────────────────────┼──────────┼──────────┤")
     
     for item in list.prefix(4) { // Get next 3-4 entries (3 hour intervals)
@@ -110,7 +138,8 @@ func formatHourlyForecast(_ forecastData: [String: Any]) -> String {
         let time = formatTime(from: dt)
         let tempStr = String(format: "%.1f", temp)
         let windStr = String(format: "%.1f m/s", windSpeed)
-        let desc = description.capitalized.prefix(19)
+        let finnishDesc = translateWeatherDescription(description)
+        let desc = finnishDesc.prefix(19)
         
         let row = "│ \(time.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
         hourlyForecasts.append(row)
@@ -124,7 +153,7 @@ func formatHourlyForecast(_ forecastData: [String: Any]) -> String {
 // Format tomorrow's forecast
 func formatTomorrowForecast(_ forecastData: [String: Any]) -> String {
     guard let list = forecastData["list"] as? [[String: Any]] else {
-        return "Error parsing forecast data"
+        return "Virhe jäsennettäessä ennustetietoja"
     }
     
     let calendar = Calendar.current
@@ -149,9 +178,9 @@ func formatTomorrowForecast(_ forecastData: [String: Any]) -> String {
         }
     }
     
-    var result = "\nTomorrow's Forecast:"
+    var result = "\nHuomisen ennuste:"
     result += "\n┌──────────────┬──────────┬─────────────────────┬──────────┬──────────┐"
-    result += "\n│ Time Period  │  Temp°C  │    Conditions       │ Humidity │   Wind   │"
+    result += "\n│  Ajankohta   │ Lämpöt.  │      Säätila        │ Kosteus  │  Tuuli   │"
     result += "\n├──────────────┼──────────┼─────────────────────┼──────────┼──────────┤"
     
     if let morning = morningForecast,
@@ -166,9 +195,10 @@ func formatTomorrowForecast(_ forecastData: [String: Any]) -> String {
         
         let tempStr = String(format: "%.1f", temp)
         let windStr = String(format: "%.1f m/s", windSpeed)
-        let desc = description.capitalized.prefix(19)
+        let finnishDesc = translateWeatherDescription(description)
+        let desc = finnishDesc.prefix(19)
         
-        let morningRow = "\n│ \("Morning".padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
+        let morningRow = "\n│ \("Aamu".padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
         result += morningRow
     }
     
@@ -184,9 +214,10 @@ func formatTomorrowForecast(_ forecastData: [String: Any]) -> String {
         
         let tempStr = String(format: "%.1f", temp)
         let windStr = String(format: "%.1f m/s", windSpeed)
-        let desc = description.capitalized.prefix(19)
+        let finnishDesc = translateWeatherDescription(description)
+        let desc = finnishDesc.prefix(19)
         
-        let afternoonRow = "\n│ \("Afternoon".padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
+        let afternoonRow = "\n│ \("Iltapäivä".padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
         result += afternoonRow
     }
     
@@ -204,14 +235,14 @@ func fetchData(from url: URL) -> [String: Any]? {
         defer { semaphore.signal() }
         
         if let error = error {
-            print("Error fetching data: \(error.localizedDescription)")
+            print("Virhe haettaessa tietoja: \(error.localizedDescription)")
             return
         }
         
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode),
               let data = data else {
-            print("Error: Invalid response")
+            print("Virhe: Virheellinen vastaus")
             return
         }
         
@@ -220,7 +251,7 @@ func fetchData(from url: URL) -> [String: Any]? {
                 result = json
             }
         } catch {
-            print("Error parsing JSON: \(error.localizedDescription)")
+            print("Virhe jäsennettäessä JSON-tietoja: \(error.localizedDescription)")
         }
     }
     
@@ -235,14 +266,14 @@ func fetchWeather() {
     // Fetch current weather
     guard let currentURL = getCurrentWeatherURL(),
           let currentWeatherData = fetchData(from: currentURL) else {
-        print("Error: Could not fetch current weather")
+        print("Virhe: Nykyisen sään hakeminen epäonnistui")
         return
     }
     
     // Fetch forecast data
     guard let forecastURL = getForecastURL(),
           let forecastData = fetchData(from: forecastURL) else {
-        print("Error: Could not fetch forecast data")
+        print("Virhe: Ennustetietojen hakeminen epäonnistui")
         return
     }
     
