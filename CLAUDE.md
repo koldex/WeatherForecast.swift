@@ -4,51 +4,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This project "helloworld.assembler" is focused on assembly language programming specifically for the Mac Silicon (ARM64/AArch64) ecosystem. It will likely involve creating a simple assembler or working with assembly code for Apple Silicon processors.
+This is a Finnish weather application for macOS that provides weather forecasts in Finnish language. The project includes two versions:
+- **WeatherForecast.swift**: Command-line interface version with ASCII art temperature display
+- **WeatherForecastGUI.swift**: Native macOS SwiftUI application with automatic updates
 
-## Getting Started
+Both applications fetch weather data from OpenWeatherMap API and display current weather, hourly forecasts, and tomorrow's predictions.
 
-For Mac Silicon development:
+## Commands
 
-1. Use `as` (the system assembler) or `clang` to assemble ARM64 assembly code:
-   ```
-   as -arch arm64 source.s -o object.o
-   ```
+### Running the Applications
+```bash
+# Command-line version
+./WeatherForecast.swift
 
-2. Link with `ld` or `clang`:
-   ```
-   ld -o executable object.o -lSystem -syslibroot `xcrun -sdk macosx --show-sdk-path` -e _start -arch arm64
-   ```
-   
-   Or with clang:
-   ```
-   clang -o executable object.o
-   ```
+# GUI version
+./WeatherForecastGUI.swift
 
-## ARM64 Assembly Development
+# Or run with Swift directly
+swift WeatherForecast.swift
+swift WeatherForecastGUI.swift
+```
 
-- Use ARM64 assembly syntax for Mac Silicon
-- System calls use the macOS ARM64 calling convention:
-  - System call number in x16
-  - Arguments in x0-x7
-  - Return value in x0
+### Setup
+```bash
+# Copy and configure the API key
+cp config.example.json config.json
+# Edit config.json to add your OpenWeatherMap API key
+
+# Make scripts executable
+chmod +x WeatherForecast.swift
+chmod +x WeatherForecastGUI.swift
+```
 
 ## Architecture
 
-Key components for an ARM64 assembler on Mac Silicon:
-- Parser for ARM64 instruction set
-- Support for Apple-specific directives
-- Handling of Mac Silicon memory model
-- Integration with macOS system calls
+### Configuration System
+Both applications share a configuration approach:
+- `Config` struct that reads from `config.json`
+- Required fields: `openWeatherMapApiKey`, `city`, `country`
+- Optional: `updateIntervalSeconds` (GUI only)
 
-## Testing
+### Weather Data Flow
+1. **API Integration**: Both apps use OpenWeatherMap API endpoints
+   - Current weather: `/data/2.5/weather`
+   - Forecast: `/data/2.5/forecast`
+2. **Data Processing**: 
+   - Weather descriptions are translated to Finnish via `translateWeatherDescription()`
+   - Forecast data includes interpolation for accurate hourly predictions
+   - Time-based forecasts (afternoon/evening) calculated dynamically
 
-Test assembly code with the following command:
-```
-./executable
-```
+### Key Shared Components
+- **Translation System**: Finnish translations for weather conditions
+- **Time Formatting**: Consistent time display across both versions
+- **Error Handling**: Finnish error messages for configuration and API issues
 
-For debugging:
-```
-lldb ./executable
-```
+### CLI-Specific Features
+- ASCII art 7-segment display for temperature (digital watch style)
+- Box-drawing characters for formatted tables
+- Synchronous execution model
+
+### GUI-Specific Features
+- SwiftUI-based interface with `@StateObject` for reactive updates
+- Timer-based automatic refresh system with pause/resume capability
+- Monospaced font for digital temperature display
+- Background threading for API calls to maintain UI responsiveness
+
+## Recent Enhancements
+
+The codebase recently added:
+- Interpolated hourly forecasts (+1h, +2h, +3h)
+- Time period forecasts (Iltapäivä/afternoon, Ilta/evening)
+- Digital watch-style temperature displays in both versions
+- Increased GUI window height (750px) to accommodate larger temperature display
