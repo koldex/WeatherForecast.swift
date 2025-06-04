@@ -109,6 +109,117 @@ func getTimeOfDay(from timestamp: TimeInterval) -> String {
     }
 }
 
+// Convert digit to digital display style (7-segment display)
+func digitalDigit(_ digit: Character) -> [String] {
+    switch digit {
+    case "0":
+        return [" ███ ",
+                "█   █",
+                "█   █",
+                "█   █",
+                " ███ "]
+    case "1":
+        return ["  █  ",
+                " ██  ",
+                "  █  ",
+                "  █  ",
+                " ███ "]
+    case "2":
+        return [" ███ ",
+                "█   █",
+                "   █ ",
+                "  █  ",
+                "█████"]
+    case "3":
+        return [" ███ ",
+                "█   █",
+                "  ██ ",
+                "█   █",
+                " ███ "]
+    case "4":
+        return ["█   █",
+                "█   █",
+                "█████",
+                "    █",
+                "    █"]
+    case "5":
+        return ["█████",
+                "█    ",
+                "████ ",
+                "    █",
+                "████ "]
+    case "6":
+        return [" ███ ",
+                "█    ",
+                "████ ",
+                "█   █",
+                " ███ "]
+    case "7":
+        return ["█████",
+                "    █",
+                "   █ ",
+                "  █  ",
+                " █   "]
+    case "8":
+        return [" ███ ",
+                "█   █",
+                " ███ ",
+                "█   █",
+                " ███ "]
+    case "9":
+        return [" ███ ",
+                "█   █",
+                " ████",
+                "    █",
+                " ███ "]
+    case ".":
+        return ["     ",
+                "     ",
+                "     ",
+                "     ",
+                "  ██ "]
+    case "-":
+        return ["     ",
+                "     ",
+                " ███ ",
+                "     ",
+                "     "]
+    case "°":
+        return [" ██  ",
+                "█  █ ",
+                " ██  ",
+                "     ",
+                "     "]
+    case "C":
+        return [" ███ ",
+                "█   █",
+                "█    ",
+                "█   █",
+                " ███ "]
+    default:
+        return ["     ",
+                "     ",
+                "     ",
+                "     ",
+                "     "]
+    }
+}
+
+// Convert temperature string to digital display
+func digitalTemperature(_ tempStr: String) -> String {
+    let chars = Array(tempStr)
+    var lines = ["", "", "", "", ""]
+    
+    for char in chars {
+        let digit = digitalDigit(char)
+        for i in 0..<5 {
+            lines[i] += digit[i] + " "
+        }
+    }
+    
+    return lines.joined(separator: "\n")
+}
+
 // Format current weather
 func formatCurrentWeather(_ weather: [String: Any]) -> String {
     guard let main = weather["main"] as? [String: Any],
@@ -124,16 +235,115 @@ func formatCurrentWeather(_ weather: [String: Any]) -> String {
     }
     
     let finnishDescription = translateWeatherDescription(description)
+    let tempStr = String(format: "%.1f", temp) + "°C"
+    let digitalTemp = digitalTemperature(tempStr)
     
     return """
     Nykyinen sää: \(CITY), \(COUNTRY)
+    
+    \(digitalTemp)
+    
     ┌─────────────────────────────────────────────┐
-    │ Lämpötila:   \(String(format: "%.1f", temp))°C (tuntuu \(String(format: "%.1f", feelsLike))°C)
-    │ Säätila:     \(finnishDescription)
-    │ Kosteus:     \(humidity)%
+    │ Tuntuu kuin:  \(String(format: "%.1f", feelsLike))°C
+    │ Säätila:      \(finnishDescription)
+    │ Kosteus:      \(humidity)%
     │ Tuulen nopeus: \(String(format: "%.1f", windSpeed)) m/s
     └─────────────────────────────────────────────┘
     """
+}
+
+// Helper function to interpolate weather data for specific hour offset
+func interpolateForecastForHour(_ list: [[String: Any]], hoursFromNow: Double) -> [String: Any]? {
+    let targetTime = Date().addingTimeInterval(hoursFromNow * 3600)
+    
+    // Find the two closest forecast entries
+    var before: [String: Any]?
+    var after: [String: Any]?
+    
+    for item in list {
+        guard let dt = item["dt"] as? TimeInterval else { continue }
+        let itemDate = Date(timeIntervalSince1970: dt)
+        
+        if itemDate <= targetTime {
+            before = item
+        } else if after == nil {
+            after = item
+            break
+        }
+    }
+    
+    // If we have exact match or only one bound, return it
+    if let beforeItem = before,
+       let beforeDt = beforeItem["dt"] as? TimeInterval,
+       Date(timeIntervalSince1970: beforeDt) == targetTime {
+        return beforeItem
+    }
+    
+    // If we only have before or after, return what we have
+    if before != nil && after == nil {
+        return before
+    }
+    if before == nil && after != nil {
+        return after
+    }
+    
+    // Interpolate between the two
+    guard let beforeItem = before,
+          let afterItem = after,
+          let beforeDt = beforeItem["dt"] as? TimeInterval,
+          let afterDt = afterItem["dt"] as? TimeInterval,
+          let beforeMain = beforeItem["main"] as? [String: Any],
+          let afterMain = afterItem["main"] as? [String: Any],
+          let beforeTemp = beforeMain["temp"] as? Double,
+          let afterTemp = afterMain["temp"] as? Double,
+          let beforeHumidity = beforeMain["humidity"] as? Int,
+          let afterHumidity = afterMain["humidity"] as? Int,
+          let beforeWind = beforeItem["wind"] as? [String: Any],
+          let afterWind = afterItem["wind"] as? [String: Any],
+          let beforeWindSpeed = beforeWind["speed"] as? Double,
+          let afterWindSpeed = afterWind["speed"] as? Double else {
+        return before ?? after
+    }
+    
+    // Calculate interpolation factor
+    let targetTimestamp = targetTime.timeIntervalSince1970
+    let factor = (targetTimestamp - beforeDt) / (afterDt - beforeDt)
+    
+    // Interpolate values
+    let interpTemp = beforeTemp + (afterTemp - beforeTemp) * factor
+    let interpHumidity = Int(Double(beforeHumidity) + Double(afterHumidity - beforeHumidity) * factor)
+    let interpWindSpeed = beforeWindSpeed + (afterWindSpeed - beforeWindSpeed) * factor
+    
+    // Use the weather description from the closest time
+    let weather = factor < 0.5 ? beforeItem["weather"] : afterItem["weather"]
+    
+    // Create interpolated result
+    var result = beforeItem
+    result["dt"] = targetTimestamp
+    result["main"] = [
+        "temp": interpTemp,
+        "humidity": interpHumidity
+    ]
+    result["wind"] = [
+        "speed": interpWindSpeed
+    ]
+    result["weather"] = weather
+    
+    return result
+}
+
+// Get time period description
+func getTimePeriodDescription(from date: Date) -> String? {
+    let calendar = Calendar.current
+    let hour = calendar.component(.hour, from: date)
+    
+    if hour >= 12 && hour < 18 {
+        return "Iltapäivä"
+    } else if hour >= 18 && hour < 23 {
+        return "Ilta"
+    } else {
+        return nil
+    }
 }
 
 // Format hourly forecast
@@ -142,40 +352,101 @@ func formatHourlyForecast(_ forecastData: [String: Any]) -> String {
         return "Virhe jäsennettäessä ennustetietoja"
     }
     
-    let now = Date()
-    let threeHoursLater = now.addingTimeInterval(3 * 3600)
-    
     var hourlyForecasts: [String] = []
-    hourlyForecasts.append("\nSeuraavien 3 tunnin ennuste:")
-    hourlyForecasts.append("┌──────────┬──────────┬─────────────────────┬──────────┬──────────┐")
-    hourlyForecasts.append("│   Aika   │ Lämpöt.  │      Säätila        │ Kosteus  │  Tuuli   │")
-    hourlyForecasts.append("├──────────┼──────────┼─────────────────────┼──────────┼──────────┤")
+    hourlyForecasts.append("\nTänään:")
+    hourlyForecasts.append("┌──────────────┬──────────┬─────────────────────┬──────────┬──────────┐")
+    hourlyForecasts.append("│     Aika     │ Lämpöt.  │      Säätila        │ Kosteus  │  Tuuli   │")
+    hourlyForecasts.append("├──────────────┼──────────┼─────────────────────┼──────────┼──────────┤")
     
-    for item in list.prefix(4) { // Get next 3-4 entries (3 hour intervals)
-        guard let dt = item["dt"] as? TimeInterval,
-              let main = item["main"] as? [String: Any],
-              let temp = main["temp"] as? Double,
-              let humidity = main["humidity"] as? Int,
-              let weather = item["weather"] as? [[String: Any]],
-              let firstWeather = weather.first,
-              let description = firstWeather["description"] as? String,
-              let wind = item["wind"] as? [String: Any],
-              let windSpeed = wind["speed"] as? Double else { continue }
-        
-        let itemDate = Date(timeIntervalSince1970: dt)
-        if itemDate > threeHoursLater { break }
-        
-        let time = formatTime(from: dt)
-        let tempStr = String(format: "%.1f", temp)
-        let windStr = String(format: "%.1f m/s", windSpeed)
-        let finnishDesc = translateWeatherDescription(description)
-        let desc = finnishDesc.prefix(19)
-        
-        let row = "│ \(time.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
-        hourlyForecasts.append(row)
+    // Get forecasts for 1h, 2h, 3h from now
+    for hours in [1.0, 2.0, 3.0] {
+        if let forecast = interpolateForecastForHour(list, hoursFromNow: hours),
+           let dt = forecast["dt"] as? TimeInterval,
+           let main = forecast["main"] as? [String: Any],
+           let temp = main["temp"] as? Double,
+           let humidity = main["humidity"] as? Int,
+           let weather = forecast["weather"] as? [[String: Any]],
+           let firstWeather = weather.first,
+           let description = firstWeather["description"] as? String,
+           let wind = forecast["wind"] as? [String: Any],
+           let windSpeed = wind["speed"] as? Double {
+            
+            let time = "+\(Int(hours))h (\(formatTime(from: dt)))"
+            let tempStr = String(format: "%.1f°C", temp)
+            let windStr = String(format: "%.1f m/s", windSpeed)
+            let finnishDesc = translateWeatherDescription(description)
+            let desc = finnishDesc.prefix(19)
+            
+            let row = "│ \(time.padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 6, withPad: " ", startingAt: 0))% │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
+            hourlyForecasts.append(row)
+        }
     }
     
-    hourlyForecasts.append("└──────────┴──────────┴─────────────────────┴──────────┴──────────┘")
+    // Add afternoon and evening if they're today
+    let now = Date()
+    let calendar = Calendar.current
+    
+    // Find afternoon forecast (around 15:00)
+    let afternoonComponents = calendar.dateComponents([.year, .month, .day], from: now)
+    if var afternoonDate = calendar.date(from: afternoonComponents) {
+        afternoonDate = calendar.date(bySettingHour: 15, minute: 0, second: 0, of: afternoonDate) ?? afternoonDate
+        
+        if afternoonDate > now {
+            let hoursUntilAfternoon = afternoonDate.timeIntervalSince(now) / 3600
+            if hoursUntilAfternoon <= 12 { // Only show if within next 12 hours
+                if let forecast = interpolateForecastForHour(list, hoursFromNow: hoursUntilAfternoon),
+                   let main = forecast["main"] as? [String: Any],
+                   let temp = main["temp"] as? Double,
+                   let humidity = main["humidity"] as? Int,
+                   let weather = forecast["weather"] as? [[String: Any]],
+                   let firstWeather = weather.first,
+                   let description = firstWeather["description"] as? String,
+                   let wind = forecast["wind"] as? [String: Any],
+                   let windSpeed = wind["speed"] as? Double {
+                    
+                    let tempStr = String(format: "%.1f°C", temp)
+                    let windStr = String(format: "%.1f m/s", windSpeed)
+                    let finnishDesc = translateWeatherDescription(description)
+                    let desc = finnishDesc.prefix(19)
+                    
+                    let row = "│ \("Iltapäivä".padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 6, withPad: " ", startingAt: 0))% │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
+                    hourlyForecasts.append(row)
+                }
+            }
+        }
+    }
+    
+    // Find evening forecast (around 20:00)
+    let eveningComponents = calendar.dateComponents([.year, .month, .day], from: now)
+    if var eveningDate = calendar.date(from: eveningComponents) {
+        eveningDate = calendar.date(bySettingHour: 20, minute: 0, second: 0, of: eveningDate) ?? eveningDate
+        
+        if eveningDate > now {
+            let hoursUntilEvening = eveningDate.timeIntervalSince(now) / 3600
+            if hoursUntilEvening <= 12 { // Only show if within next 12 hours
+                if let forecast = interpolateForecastForHour(list, hoursFromNow: hoursUntilEvening),
+                   let main = forecast["main"] as? [String: Any],
+                   let temp = main["temp"] as? Double,
+                   let humidity = main["humidity"] as? Int,
+                   let weather = forecast["weather"] as? [[String: Any]],
+                   let firstWeather = weather.first,
+                   let description = firstWeather["description"] as? String,
+                   let wind = forecast["wind"] as? [String: Any],
+                   let windSpeed = wind["speed"] as? Double {
+                    
+                    let tempStr = String(format: "%.1f°C", temp)
+                    let windStr = String(format: "%.1f m/s", windSpeed)
+                    let finnishDesc = translateWeatherDescription(description)
+                    let desc = finnishDesc.prefix(19)
+                    
+                    let row = "│ \("Ilta".padding(toLength: 12, withPad: " ", startingAt: 0)) │ \(tempStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │ \(String(desc).padding(toLength: 19, withPad: " ", startingAt: 0)) │ \(String(humidity).padding(toLength: 6, withPad: " ", startingAt: 0))% │ \(windStr.padding(toLength: 8, withPad: " ", startingAt: 0)) │"
+                    hourlyForecasts.append(row)
+                }
+            }
+        }
+    }
+    
+    hourlyForecasts.append("└──────────────┴──────────┴─────────────────────┴──────────┴──────────┘")
     
     return hourlyForecasts.joined(separator: "\n")
 }

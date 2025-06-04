@@ -232,37 +232,181 @@ func parseCurrentWeather(_ weather: [String: Any]) -> CurrentWeather? {
     )
 }
 
+// Helper function to interpolate weather data for specific hour offset
+func interpolateForecastForHour(_ list: [[String: Any]], hoursFromNow: Double) -> [String: Any]? {
+    let targetTime = Date().addingTimeInterval(hoursFromNow * 3600)
+    
+    // Find the two closest forecast entries
+    var before: [String: Any]?
+    var after: [String: Any]?
+    
+    for item in list {
+        guard let dt = item["dt"] as? TimeInterval else { continue }
+        let itemDate = Date(timeIntervalSince1970: dt)
+        
+        if itemDate <= targetTime {
+            before = item
+        } else if after == nil {
+            after = item
+            break
+        }
+    }
+    
+    // If we have exact match or only one bound, return it
+    if let beforeItem = before,
+       let beforeDt = beforeItem["dt"] as? TimeInterval,
+       Date(timeIntervalSince1970: beforeDt) == targetTime {
+        return beforeItem
+    }
+    
+    // If we only have before or after, return what we have
+    if before != nil && after == nil {
+        return before
+    }
+    if before == nil && after != nil {
+        return after
+    }
+    
+    // Interpolate between the two
+    guard let beforeItem = before,
+          let afterItem = after,
+          let beforeDt = beforeItem["dt"] as? TimeInterval,
+          let afterDt = afterItem["dt"] as? TimeInterval,
+          let beforeMain = beforeItem["main"] as? [String: Any],
+          let afterMain = afterItem["main"] as? [String: Any],
+          let beforeTemp = beforeMain["temp"] as? Double,
+          let afterTemp = afterMain["temp"] as? Double,
+          let beforeHumidity = beforeMain["humidity"] as? Int,
+          let afterHumidity = afterMain["humidity"] as? Int,
+          let beforeWind = beforeItem["wind"] as? [String: Any],
+          let afterWind = afterItem["wind"] as? [String: Any],
+          let beforeWindSpeed = beforeWind["speed"] as? Double,
+          let afterWindSpeed = afterWind["speed"] as? Double else {
+        return before ?? after
+    }
+    
+    // Calculate interpolation factor
+    let targetTimestamp = targetTime.timeIntervalSince1970
+    let factor = (targetTimestamp - beforeDt) / (afterDt - beforeDt)
+    
+    // Interpolate values
+    let interpTemp = beforeTemp + (afterTemp - beforeTemp) * factor
+    let interpHumidity = Int(Double(beforeHumidity) + Double(afterHumidity - beforeHumidity) * factor)
+    let interpWindSpeed = beforeWindSpeed + (afterWindSpeed - beforeWindSpeed) * factor
+    
+    // Use the weather description from the closest time
+    let weather = factor < 0.5 ? beforeItem["weather"] : afterItem["weather"]
+    
+    // Create interpolated result
+    var result = beforeItem
+    result["dt"] = targetTimestamp
+    result["main"] = [
+        "temp": interpTemp,
+        "humidity": interpHumidity
+    ]
+    result["wind"] = [
+        "speed": interpWindSpeed
+    ]
+    result["weather"] = weather
+    
+    return result
+}
+
 // Parse hourly forecast
 func parseHourlyForecast(_ forecastData: [String: Any]) -> [ForecastItem] {
     guard let list = forecastData["list"] as? [[String: Any]] else {
         return []
     }
     
-    let now = Date()
-    let threeHoursLater = now.addingTimeInterval(3 * 3600)
     var forecasts: [ForecastItem] = []
     
-    for item in list.prefix(4) { // Get next 3-4 entries (3 hour intervals)
-        guard let dt = item["dt"] as? TimeInterval,
-              let main = item["main"] as? [String: Any],
-              let temp = main["temp"] as? Double,
-              let humidity = main["humidity"] as? Int,
-              let weather = item["weather"] as? [[String: Any]],
-              let firstWeather = weather.first,
-              let description = firstWeather["description"] as? String,
-              let wind = item["wind"] as? [String: Any],
-              let windSpeed = wind["speed"] as? Double else { continue }
+    // Get forecasts for 1h, 2h, 3h from now
+    for hours in [1.0, 2.0, 3.0] {
+        if let forecast = interpolateForecastForHour(list, hoursFromNow: hours),
+           let dt = forecast["dt"] as? TimeInterval,
+           let main = forecast["main"] as? [String: Any],
+           let temp = main["temp"] as? Double,
+           let humidity = main["humidity"] as? Int,
+           let weather = forecast["weather"] as? [[String: Any]],
+           let firstWeather = weather.first,
+           let description = firstWeather["description"] as? String,
+           let wind = forecast["wind"] as? [String: Any],
+           let windSpeed = wind["speed"] as? Double {
+            
+            let time = "+\(Int(hours))h (\(formatTime(from: dt)))"
+            
+            forecasts.append(ForecastItem(
+                time: time,
+                temperature: temp,
+                description: translateWeatherDescription(description),
+                humidity: humidity,
+                windSpeed: windSpeed
+            ))
+        }
+    }
+    
+    // Add afternoon and evening if they're today
+    let now = Date()
+    let calendar = Calendar.current
+    
+    // Find afternoon forecast (around 15:00)
+    let afternoonComponents = calendar.dateComponents([.year, .month, .day], from: now)
+    if var afternoonDate = calendar.date(from: afternoonComponents) {
+        afternoonDate = calendar.date(bySettingHour: 15, minute: 0, second: 0, of: afternoonDate) ?? afternoonDate
         
-        let itemDate = Date(timeIntervalSince1970: dt)
-        if itemDate > threeHoursLater { break }
+        if afternoonDate > now {
+            let hoursUntilAfternoon = afternoonDate.timeIntervalSince(now) / 3600
+            if hoursUntilAfternoon <= 12 { // Only show if within next 12 hours
+                if let forecast = interpolateForecastForHour(list, hoursFromNow: hoursUntilAfternoon),
+                   let main = forecast["main"] as? [String: Any],
+                   let temp = main["temp"] as? Double,
+                   let humidity = main["humidity"] as? Int,
+                   let weather = forecast["weather"] as? [[String: Any]],
+                   let firstWeather = weather.first,
+                   let description = firstWeather["description"] as? String,
+                   let wind = forecast["wind"] as? [String: Any],
+                   let windSpeed = wind["speed"] as? Double {
+                    
+                    forecasts.append(ForecastItem(
+                        time: "Iltapäivä",
+                        temperature: temp,
+                        description: translateWeatherDescription(description),
+                        humidity: humidity,
+                        windSpeed: windSpeed
+                    ))
+                }
+            }
+        }
+    }
+    
+    // Find evening forecast (around 20:00)
+    let eveningComponents = calendar.dateComponents([.year, .month, .day], from: now)
+    if var eveningDate = calendar.date(from: eveningComponents) {
+        eveningDate = calendar.date(bySettingHour: 20, minute: 0, second: 0, of: eveningDate) ?? eveningDate
         
-        forecasts.append(ForecastItem(
-            time: formatTime(from: dt),
-            temperature: temp,
-            description: translateWeatherDescription(description),
-            humidity: humidity,
-            windSpeed: windSpeed
-        ))
+        if eveningDate > now {
+            let hoursUntilEvening = eveningDate.timeIntervalSince(now) / 3600
+            if hoursUntilEvening <= 12 { // Only show if within next 12 hours
+                if let forecast = interpolateForecastForHour(list, hoursFromNow: hoursUntilEvening),
+                   let main = forecast["main"] as? [String: Any],
+                   let temp = main["temp"] as? Double,
+                   let humidity = main["humidity"] as? Int,
+                   let weather = forecast["weather"] as? [[String: Any]],
+                   let firstWeather = weather.first,
+                   let description = firstWeather["description"] as? String,
+                   let wind = forecast["wind"] as? [String: Any],
+                   let windSpeed = wind["speed"] as? Double {
+                    
+                    forecasts.append(ForecastItem(
+                        time: "Ilta",
+                        temperature: temp,
+                        description: translateWeatherDescription(description),
+                        humidity: humidity,
+                        windSpeed: windSpeed
+                    ))
+                }
+            }
+        }
     }
     
     return forecasts
@@ -404,12 +548,22 @@ struct ContentView: View {
                                 Text("Nykyinen sää")
                                     .font(.headline)
                                 
+                                // Digital temperature display
+                                HStack {
+                                    Spacer()
+                                    Text(String(format: "%.1f°C", current.temperature))
+                                        .font(.system(size: 48, weight: .light, design: .monospaced))
+                                        .foregroundColor(.blue)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 10)
+                                
                                 VStack(alignment: .leading, spacing: 5) {
                                     HStack {
-                                        Text("Lämpötila:")
+                                        Text("Tuntuu kuin:")
                                             .fontWeight(.medium)
                                             .frame(width: 120, alignment: .leading)
-                                        Text(String(format: "%.1f°C (tuntuu %.1f°C)", current.temperature, current.feelsLike))
+                                        Text(String(format: "%.1f°C", current.feelsLike))
                                     }
                                     HStack {
                                         Text("Säätila:")
@@ -439,7 +593,7 @@ struct ContentView: View {
                         // Hourly forecast
                         if !weatherData.hourlyForecast.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
-                                Text("Seuraavien 3 tunnin ennuste")
+                                Text("Tänään")
                                     .font(.headline)
                                 
                                 VStack(spacing: 0) {
@@ -447,13 +601,13 @@ struct ContentView: View {
                                     HStack {
                                         Text("Aika")
                                             .fontWeight(.medium)
-                                            .frame(width: 50, alignment: .leading)
+                                            .frame(width: 80, alignment: .leading)
                                         Text("Lämpöt.")
                                             .fontWeight(.medium)
                                             .frame(width: 60, alignment: .leading)
                                         Text("Säätila")
                                             .fontWeight(.medium)
-                                            .frame(width: 140, alignment: .leading)
+                                            .frame(width: 120, alignment: .leading)
                                         Text("Kosteus")
                                             .fontWeight(.medium)
                                             .frame(width: 60, alignment: .leading)
@@ -469,11 +623,11 @@ struct ContentView: View {
                                     ForEach(weatherData.hourlyForecast, id: \.time) { forecast in
                                         HStack {
                                             Text(forecast.time)
-                                                .frame(width: 50, alignment: .leading)
+                                                .frame(width: 80, alignment: .leading)
                                             Text(String(format: "%.1f°", forecast.temperature))
                                                 .frame(width: 60, alignment: .leading)
                                             Text(forecast.description)
-                                                .frame(width: 140, alignment: .leading)
+                                                .frame(width: 120, alignment: .leading)
                                             Text("\(forecast.humidity)%")
                                                 .frame(width: 60, alignment: .leading)
                                             Text(String(format: "%.1f m/s", forecast.windSpeed))
