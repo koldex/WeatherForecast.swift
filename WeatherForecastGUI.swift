@@ -62,6 +62,7 @@ struct TomorrowForecast {
 }
 
 // Weather data container
+@MainActor
 class WeatherData: ObservableObject {
     @Published var currentWeather: CurrentWeather?
     @Published var hourlyForecast: [ForecastItem] = []
@@ -78,12 +79,16 @@ class WeatherData: ObservableObject {
         stopAutoUpdate()
         
         // Update immediately
-        loadWeatherData(self)
+        loadWeatherData()
         
         // Then update based on config interval
-        updateTimer = Timer.scheduledTimer(withTimeInterval: UPDATE_INTERVAL, repeats: true) { _ in
-            if !self.isFrozen {
-                loadWeatherData(self)
+        updateTimer = Timer.scheduledTimer(withTimeInterval: UPDATE_INTERVAL, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                if !self.isFrozen {
+                    self.loadWeatherData()
+                }
             }
         }
     }
@@ -103,15 +108,60 @@ class WeatherData: ObservableObject {
     }
     
     func manualRefresh() {
-        loadWeatherData(self)
+        loadWeatherData()
     }
     
     deinit {
-        stopAutoUpdate()
+        // Timer cleanup happens automatically when WeatherData is deallocated
+    }
+    
+    // Load all weather data
+    private func loadWeatherData() {
+        Task {
+            await MainActor.run {
+                self.isLoading = true
+                self.errorMessage = nil
+            }
+            
+            // Run network operations in background
+            let result = await Task.detached { () -> (error: String?, current: CurrentWeather?, hourly: [ForecastItem], tomorrow: TomorrowForecast) in
+                // Fetch current weather
+                guard let currentURL = getCurrentWeatherURL(),
+                      let currentWeatherData = fetchData(from: currentURL) else {
+                    return (error: "Virhe: Nykyisen sään hakeminen epäonnistui", current: nil, hourly: [], tomorrow: TomorrowForecast(morning: nil, afternoon: nil))
+                }
+                
+                // Fetch forecast data
+                guard let forecastURL = getForecastURL(),
+                      let forecastData = fetchData(from: forecastURL) else {
+                    return (error: "Virhe: Ennustetietojen hakeminen epäonnistui", current: nil, hourly: [], tomorrow: TomorrowForecast(morning: nil, afternoon: nil))
+                }
+                
+                let current = parseCurrentWeather(currentWeatherData)
+                let hourly = parseHourlyForecast(forecastData)
+                let tomorrow = parseTomorrowForecast(forecastData)
+                
+                return (error: nil, current: current, hourly: hourly, tomorrow: tomorrow)
+            }.value
+            
+            // Update UI on main thread
+            await MainActor.run {
+                if let error = result.error {
+                    self.errorMessage = error
+                } else {
+                    self.currentWeather = result.current
+                    self.hourlyForecast = result.hourly
+                    self.tomorrowForecast = result.tomorrow
+                    self.lastUpdateTime = Date()
+                }
+                self.isLoading = false
+            }
+        }
     }
 }
 
 // API URL for current weather
+@Sendable
 func getCurrentWeatherURL() -> URL? {
     let baseURL = "https://api.openweathermap.org/data/2.5/weather"
     let urlString = "\(baseURL)?q=\(CITY),\(COUNTRY)&units=metric&appid=\(API_KEY)"
@@ -119,6 +169,7 @@ func getCurrentWeatherURL() -> URL? {
 }
 
 // API URL for forecast
+@Sendable
 func getForecastURL() -> URL? {
     let baseURL = "https://api.openweathermap.org/data/2.5/forecast"
     let urlString = "\(baseURL)?q=\(CITY),\(COUNTRY)&units=metric&appid=\(API_KEY)"
@@ -126,6 +177,7 @@ func getForecastURL() -> URL? {
 }
 
 // Translate weather descriptions from English to Finnish
+@Sendable
 func translateWeatherDescription(_ description: String) -> String {
     let translations: [String: String] = [
         "clear sky": "Kirkas taivas",
@@ -151,6 +203,7 @@ func translateWeatherDescription(_ description: String) -> String {
 }
 
 // Convert timestamp to formatted string
+@Sendable
 func formatTime(from timestamp: TimeInterval) -> String {
     let date = Date(timeIntervalSince1970: timestamp)
     let dateFormatter = DateFormatter()
@@ -160,6 +213,7 @@ func formatTime(from timestamp: TimeInterval) -> String {
 }
 
 // Check if time is morning (6-12) or afternoon (12-18)
+@Sendable
 func getTimeOfDay(from timestamp: TimeInterval) -> String {
     let date = Date(timeIntervalSince1970: timestamp)
     let calendar = Calendar.current
@@ -175,6 +229,7 @@ func getTimeOfDay(from timestamp: TimeInterval) -> String {
 }
 
 // Fetch weather data from API
+@Sendable
 func fetchData(from url: URL) -> [String: Any]? {
     let semaphore = DispatchSemaphore(value: 0)
     var result: [String: Any]?
@@ -210,6 +265,7 @@ func fetchData(from url: URL) -> [String: Any]? {
 }
 
 // Parse current weather
+@Sendable
 func parseCurrentWeather(_ weather: [String: Any]) -> CurrentWeather? {
     guard let main = weather["main"] as? [String: Any],
           let temp = main["temp"] as? Double,
@@ -233,6 +289,7 @@ func parseCurrentWeather(_ weather: [String: Any]) -> CurrentWeather? {
 }
 
 // Helper function to interpolate weather data for specific hour offset
+@Sendable
 func interpolateForecastForHour(_ list: [[String: Any]], hoursFromNow: Double) -> [String: Any]? {
     let targetTime = Date().addingTimeInterval(hoursFromNow * 3600)
     
@@ -313,6 +370,7 @@ func interpolateForecastForHour(_ list: [[String: Any]], hoursFromNow: Double) -
 }
 
 // Parse hourly forecast
+@Sendable
 func parseHourlyForecast(_ forecastData: [String: Any]) -> [ForecastItem] {
     guard let list = forecastData["list"] as? [[String: Any]] else {
         return []
@@ -413,6 +471,7 @@ func parseHourlyForecast(_ forecastData: [String: Any]) -> [ForecastItem] {
 }
 
 // Parse tomorrow's forecast
+@Sendable
 func parseTomorrowForecast(_ forecastData: [String: Any]) -> TomorrowForecast {
     guard let list = forecastData["list"] as? [[String: Any]] else {
         return TomorrowForecast(morning: nil, afternoon: nil)
@@ -461,42 +520,6 @@ func parseTomorrowForecast(_ forecastData: [String: Any]) -> TomorrowForecast {
     return TomorrowForecast(morning: morningForecast, afternoon: afternoonForecast)
 }
 
-// Load all weather data
-func loadWeatherData(_ weatherData: WeatherData) {
-    DispatchQueue.global(qos: .background).async {
-        // Fetch current weather
-        guard let currentURL = getCurrentWeatherURL(),
-              let currentWeatherData = fetchData(from: currentURL) else {
-            DispatchQueue.main.async {
-                weatherData.errorMessage = "Virhe: Nykyisen sään hakeminen epäonnistui"
-                weatherData.isLoading = false
-            }
-            return
-        }
-        
-        // Fetch forecast data
-        guard let forecastURL = getForecastURL(),
-              let forecastData = fetchData(from: forecastURL) else {
-            DispatchQueue.main.async {
-                weatherData.errorMessage = "Virhe: Ennustetietojen hakeminen epäonnistui"
-                weatherData.isLoading = false
-            }
-            return
-        }
-        
-        let current = parseCurrentWeather(currentWeatherData)
-        let hourly = parseHourlyForecast(forecastData)
-        let tomorrow = parseTomorrowForecast(forecastData)
-        
-        DispatchQueue.main.async {
-            weatherData.currentWeather = current
-            weatherData.hourlyForecast = hourly
-            weatherData.tomorrowForecast = tomorrow
-            weatherData.lastUpdateTime = Date()
-            weatherData.isLoading = false
-        }
-    }
-}
 
 // Main content view
 struct ContentView: View {
