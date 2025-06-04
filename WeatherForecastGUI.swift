@@ -752,7 +752,7 @@ struct ContentView: View {
             }
         }
         .padding()
-        .frame(width: 550, height: 650)
+        .frame(width: 550, height: 750)
         .onAppear {
             weatherData.startAutoUpdate()
         }
@@ -769,7 +769,7 @@ struct WeatherApp: App {
         if let window = NSApplication.shared.windows.first {
             window.titlebarAppearsTransparent = false
             window.title = "Säätiedot"
-            window.setContentSize(NSSize(width: 550, height: 650))
+            window.setContentSize(NSSize(width: 550, height: 750))
             window.center()
         }
     }
