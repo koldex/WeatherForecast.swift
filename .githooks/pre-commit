@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Prevent committing potential secrets or local env/config files
+set -euo pipefail
+
+# Block committing files likely to contain secrets
+if git diff --cached --name-only | grep -E '(^|/)(\.env|\.env\.local|config\.json)$' >/dev/null; then
+  echo "pre-commit: Refusing to commit .env/.env.local/config.json (potential secrets)." >&2
+  echo "pre-commit: Add necessary non-secret fields to config.example.json instead." >&2
+  exit 1
+fi
+
+# Optional: run gitleaks scan on staged changes (fast path)
+if command -v gitleaks >/dev/null 2>&1; then
+  TMPDIR=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR"' EXIT
+  # Create a temporary index of staged files only
+  git diff --cached --name-only -z | xargs -0 -I{} sh -c 'mkdir -p "$TMPDIR/$(dirname "{}")"; git show :"{}" > "$TMPDIR/{}"'
+  if ! gitleaks dir -v "$TMPDIR" --report-format json --report-path "$TMPDIR/gitleaks.json" >/dev/null 2>&1; then
+    echo "pre-commit: gitleaks detected potential secrets in staged changes. Aborting commit." >&2
+    echo "pre-commit: Review $TMPDIR/gitleaks.json for details (not added to repo)." >&2
+    exit 1
+  fi
+fi
+
+exit 0
