@@ -55,3 +55,12 @@ fastlane/test_output
 
 # Claude Code
 .claude/
+
+# Ignore AI agent guidance files
+CLAUDE.md
+WARP.md
+AGENTS.md
+agents.md
+claude.md
+warp.md
+agents/*.md
