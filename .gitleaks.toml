@@ -1,0 +1,14 @@
+# Gitleaks config for this repo
+# Policy: allow known placeholders and example files, block real secrets
+
+[allowlist]
+# File paths that may contain placeholders but must not contain real secrets
+paths = [
+  "config.example.json",
+  ".env.sample"
+]
+
+# Regex patterns that are safe placeholders (not real secrets)
+regexes = [
+  '''YOUR_API_KEY_HERE'''
+]
