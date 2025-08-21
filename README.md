@@ -47,6 +47,8 @@ Seuraavien 3 tunnin ennuste:
 ### GUI Version
 The GUI version displays the same information in a modern macOS window with buttons for manual refresh, pause/resume updates, and close.
 
+[![Security checks (Gitleaks + Semgrep)](https://github.com/koldex/WeatherForecast.swift/actions/workflows/secret-sast.yml/badge.svg)](https://github.com/koldex/WeatherForecast.swift/actions/workflows/secret-sast.yml)
+
 ## Prerequisites 📋
 
 - macOS 11.0 or later
