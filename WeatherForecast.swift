@@ -2,9 +2,9 @@
 
 import Foundation
 
-// Configuration structure
+// Configuration structure (API key is optional; prefer environment variable)
 struct Config: Codable {
-    let openWeatherMapApiKey: String
+    let openWeatherMapApiKey: String?
     let city: String
     let country: String
     let updateIntervalSeconds: Int?
@@ -22,7 +22,7 @@ func loadConfig() -> Config? {
     } catch {
         print("Virhe: config.json tiedostoa ei löydy tai se on virheellinen.")
         print("Luo config.json tiedosto config.example.json pohjalta.")
-        print("Lisää oma OpenWeatherMap API-avaimesi tiedostoon.")
+        print("Aseta OpenWeatherMap API-avaimesi ympäristömuuttujaan OPENWEATHERMAP_API_KEY.")
         return nil
     }
 }
@@ -35,7 +35,18 @@ guard let config = loadConfig() else {
 // Constants from config
 let CITY = config.city
 let COUNTRY = config.country
-let API_KEY = config.openWeatherMapApiKey
+// Prefer environment variable; fall back to optional config field if present
+let API_KEY: String = {
+    let env = ProcessInfo.processInfo.environment["OPENWEATHERMAP_API_KEY"]
+    if let trimmed = env?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
+        return trimmed
+    }
+    if let fromConfig = config.openWeatherMapApiKey?.trimmingCharacters(in: .whitespacesAndNewlines), !fromConfig.isEmpty {
+        return fromConfig
+    }
+    print("Virhe: OpenWeatherMap API-avain puuttuu. Aseta se ympäristömuuttujaan OPENWEATHERMAP_API_KEY (suositus).")
+    exit(1)
+}()
 
 // API URL for current weather
 func getCurrentWeatherURL() -> URL? {

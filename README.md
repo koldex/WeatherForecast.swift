@@ -70,16 +70,15 @@ The GUI version displays the same information in a modern macOS window with butt
    ```bash
    cp config.example.json config.json
    ```
-   
-   Edit `config.json` and add your API key:
-   ```json
-   {
-     "openWeatherMapApiKey": "YOUR_API_KEY_HERE",
-     "city": "Lappeenranta",
-     "country": "Finland",
-     "updateIntervalSeconds": 60
-   }
+
+   Set your OpenWeatherMap API key as an environment variable (recommended for public repositories):
+   ```bash
+   export OPENWEATHERMAP_API_KEY={{OPENWEATHERMAP_API_KEY}}
    ```
+
+   Notes:
+   - The application reads the API key from the environment variable `OPENWEATHERMAP_API_KEY`.
+   - For backward compatibility, an optional `openWeatherMapApiKey` field in `config.json` may be used locally, but do not commit secrets.
 
 4. **Make the scripts executable:**
    ```bash
@@ -107,14 +106,16 @@ swift WeatherForecastGUI.swift
 
 ## Configuration ⚙️
 
-The `config.json` file supports the following options:
+The application uses an environment variable for the API key and a JSON file for non-secret settings.
 
-| Field | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `openWeatherMapApiKey` | Your OpenWeatherMap API key | Yes | - |
-| `city` | City name for weather data | Yes | - |
-| `country` | Country name for weather data | Yes | - |
-| `updateIntervalSeconds` | Auto-update interval (GUI only) | No | 60 |
+| Field | Source | Description | Required | Default |
+|-------|--------|-------------|----------|---------|
+| `OPENWEATHERMAP_API_KEY` | env | Your OpenWeatherMap API key (do not commit) | Yes | - |
+| `city` | config.json | City name for weather data | Yes | - |
+| `country` | config.json | Country name for weather data | Yes | - |
+| `updateIntervalSeconds` | config.json | Auto-update interval (GUI only) | No | 60 |
+
+Backward compatibility: If `openWeatherMapApiKey` is present in `config.json`, it will be used only if the environment variable is not set. Avoid committing secrets to the repository.
 
 ## Weather Translations 🌍
 
