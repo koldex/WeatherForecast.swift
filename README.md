@@ -76,9 +76,10 @@ The GUI version displays the same information in a modern macOS window with butt
    export OPENWEATHERMAP_API_KEY={{OPENWEATHERMAP_API_KEY}}
    ```
 
-   Notes:
-   - The application reads the API key from the environment variable `OPENWEATHERMAP_API_KEY`.
-   - For backward compatibility, an optional `openWeatherMapApiKey` field in `config.json` may be used locally, but do not commit secrets.
+Notes:
+- The application reads the API key from the environment variable `OPENWEATHERMAP_API_KEY`.
+- You can manage the key locally with direnv: copy .env.sample to .env.local and set your key; then run `direnv allow` once.
+- For backward compatibility, an optional `openWeatherMapApiKey` field in `config.json` may be used locally, but do not commit secrets.
 
 4. **Make the scripts executable:**
    ```bash
@@ -87,6 +88,12 @@ The GUI version displays the same information in a modern macOS window with butt
    ```
 
 ## Usage 🎯
+
+### Using direnv (recommended)
+1. Install direnv (if not installed): `brew install direnv` and add `eval "$(direnv hook zsh)"` to your ~/.zshrc
+2. Copy the sample env: `cp .env.sample .env.local` and set your real key in .env.local
+3. Allow in this repo: `direnv allow`
+4. Run the app normally (env loads automatically when entering the repo directory)
 
 ### Command Line Version
 ```bash
